@@ -3,14 +3,18 @@
   if (window.__updateScreenLoaded) return;
   window.__updateScreenLoaded = true;
 
-  const WATCHED = [
-    [/^update\.home_assistant_core_update$/, "Core"],
-    [/^update\.home_assistant_supervisor_update$/, "Supervisor"],
-    [/^update\.home_assistant_(operating_system|os)_update$/, "Operating System"],
+  const DEFAULTS = [
+    /^update\.home_assistant_core_update$/,
+    /^update\.home_assistant_supervisor_update$/,
+    /^update\.home_assistant_(operating_system|os)_update$/,
   ];
 
+  const DEMO_MS = 15000;
   let overlay = null;
   let dismissed = false;
+  let selected = [];
+  let demoUntil = 0;
+  let initialised = false;
 
   const getStates = () => {
     const ha = document.querySelector("home-assistant");
@@ -20,14 +24,38 @@
   const activeUpdates = (states) => {
     const out = [];
     for (const [id, st] of Object.entries(states)) {
-      const match = WATCHED.find(([re]) => re.test(id));
-      if (!match) continue;
+      const watched = selected.length
+        ? selected.includes(id)
+        : DEFAULTS.some((re) => re.test(id));
+      if (!watched) continue;
       const a = st.attributes || {};
       if (!a.in_progress) continue;
       const pct = typeof a.in_progress === "number" ? a.in_progress : a.update_percentage;
-      out.push({ name: match[1], pct: typeof pct === "number" ? pct : null });
+      out.push({ name: a.friendly_name || id, pct: typeof pct === "number" ? pct : null });
     }
     return out;
+  };
+
+  const demoUpdates = () => {
+    const left = demoUntil - Date.now();
+    return left > 0
+      ? [{ name: "Demo", pct: Math.min(100, ((DEMO_MS - left) / DEMO_MS) * 100) }]
+      : [];
+  };
+
+  const init = async (ha) => {
+    initialised = true;
+    const load = async () => {
+      try {
+        selected = (await ha.hass.callWS({ type: "update_screen/get_config" })).entities || [];
+      } catch (e) { /* keep previous settings */ }
+    };
+    await load();
+    ha.hass.connection.subscribeEvents(load, "update_screen_config_updated");
+    ha.hass.connection.subscribeEvents(() => {
+      dismissed = false;
+      demoUntil = Date.now() + DEMO_MS;
+    }, "update_screen_demo");
   };
 
   const build = () => {
@@ -85,7 +113,7 @@
       document.body.appendChild(overlay);
     }
     overlay.querySelector(".what").textContent =
-      "Home Assistant " + updates.map((u) => u.name).join(" & ");
+      updates.map((u) => u.name).join(" & ");
     const fill = overlay.querySelector(".fill");
     const pcts = updates.map((u) => u.pct).filter((p) => p !== null);
     if (pcts.length) {
@@ -98,9 +126,10 @@
   };
 
   setInterval(() => {
-    const states = getStates();
-    if (!states) return;
-    const updates = activeUpdates(states);
+    const ha = document.querySelector("home-assistant");
+    if (!ha || !ha.hass) return;
+    if (!initialised) init(ha);
+    const updates = activeUpdates(ha.hass.states).concat(demoUpdates());
     if (!updates.length) dismissed = false;
     render(updates);
   }, 1000);

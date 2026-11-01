@@ -13,5 +13,5 @@ It shows a status bar, the text "The system is updating, and some UI elements ma
 
 ## Notes
 
-- Watches `update.home_assistant_core_update`, `update.home_assistant_supervisor_update` and `update.home_assistant_operating_system_update`. Add-on updates are ignored. Edit `WATCHED` in `custom_components/update_screen/www/update-screen.js` if your entity IDs differ.
+- By default watches `update.home_assistant_core_update`, `update.home_assistant_supervisor_update` and `update.home_assistant_operating_system_update`. Open the integration → **Configure** to choose any `update.*` entities instead, or to **Show demo**. A **Demo** button entity is also added to the integration for previewing.
 - Core and OS updates restart Home Assistant, so the screen is only visible before the restart.
