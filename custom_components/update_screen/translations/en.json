@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Update Screen",
+        "description": "Show an \"Updating\" screen in the UI while Home Assistant Supervisor, Core or the Operating System is updating."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Update Screen is already set up."
+    }
+  }
+}
