@@ -43,14 +43,25 @@ class UpdateScreenOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(data=user_input)
         current = self.config_entry.options.get(CONF_ENTITIES, [])
+        names = {
+            state.entity_id: state.name for state in self.hass.states.async_all("update")
+        }
+        for entity_id in current:
+            names.setdefault(entity_id, entity_id)
+        options = [
+            selector.SelectOptionDict(value=entity_id, label=f"{name} ({entity_id})")
+            for entity_id, name in sorted(names.items(), key=lambda item: item[1].lower())
+        ]
         return self.async_show_form(
             step_id="entities",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        CONF_ENTITIES, default=current
-                    ): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="update", multiple=True)
+                    vol.Optional(CONF_ENTITIES, default=current): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
                     )
                 }
             ),

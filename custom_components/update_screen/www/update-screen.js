@@ -65,11 +65,13 @@
       <style>
         #update-screen-overlay{position:fixed;inset:0;z-index:2147483000;display:flex;
           align-items:center;justify-content:center;padding:16px;box-sizing:border-box;
+          opacity:0;transition:opacity .4s ease;
           background:var(--primary-background-color);color:var(--primary-text-color);
           font-family:var(--ha-font-family-body,var(--paper-font-body1_-_font-family,Roboto,sans-serif));
           text-align:center}
-        #update-screen-overlay ha-card{max-width:480px;width:100%;padding:32px 24px;
-          box-sizing:border-box;display:block}
+        #update-screen-overlay{pointer-events:none}
+        #update-screen-overlay.visible{opacity:1;pointer-events:auto}
+        #update-screen-overlay .box{max-width:480px;width:100%;box-sizing:border-box}
         #update-screen-overlay h1{margin:0 0 4px;font-size:var(--ha-font-size-3xl,28px);
           font-weight:var(--ha-font-weight-medium,500);color:var(--primary-text-color)}
         #update-screen-overlay .what{margin:0 0 24px;color:var(--secondary-text-color)}
@@ -82,35 +84,39 @@
         @keyframes us-slide{0%{left:-35%}100%{left:100%}}
         #update-screen-overlay p.msg{margin:24px 0 28px;line-height:1.5;
           color:var(--secondary-text-color)}
-        #update-screen-overlay button{background:var(--warning-color,#ff9800);color:#fff;border:0;
-          border-radius:var(--ha-button-border-radius,var(--mdc-shape-small,4px));
-          padding:10px 28px;font:inherit;font-weight:500;cursor:pointer;
-          text-transform:uppercase;letter-spacing:.0892857143em}
-        #update-screen-overlay button:hover{filter:brightness(.92)}
       </style>
-      <ha-card>
+      <div class="box">
         <h1>Updating</h1>
         <div class="what"></div>
         <div class="bar"><div class="fill indeterminate"></div></div>
         <p class="msg">The system is updating, and some UI elements may be slow while updating.</p>
-        <button type="button">Continue</button>
-      </ha-card>`;
-    el.querySelector("button").addEventListener("click", () => {
+        <ha-button variant="danger">Continue</ha-button>
+      </div>`;
+    el.querySelector("ha-button").addEventListener("click", () => {
       dismissed = true;
-      render([]);
+      hide();
     });
     return el;
   };
 
+  const hide = () => {
+    if (!overlay) return;
+    const el = overlay;
+    overlay = null;
+    el.classList.remove("visible");
+    setTimeout(() => el.remove(), 450);
+  };
+
   const render = (updates) => {
-    const show = updates.length > 0 && !dismissed;
-    if (!show) {
-      if (overlay) { overlay.remove(); overlay = null; }
+    if (!updates.length || dismissed) {
+      hide();
       return;
     }
     if (!overlay) {
       overlay = build();
       document.body.appendChild(overlay);
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        overlay && overlay.classList.add("visible")));
     }
     overlay.querySelector(".what").textContent =
       updates.map((u) => u.name).join(" & ");
