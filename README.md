@@ -1,8 +1,7 @@
 # Update Screen
 
-A Home Assistant custom integration that shows a full-screen "Updating" notice, using your theme's colors and Home Assistant's UI styles, while the **Supervisor**, **Core** or **Operating System** is updating.
+A Home Assistant custom integration that shows a full-screen "Updating" notice, while the **Supervisor**, **Core** or **Operating System** is updating.
 
-It shows a status bar, the text "The system is updating, and some UI elements may be slow while updating.", and an orange **Continue** button to dismiss it and go on to the UI.
 
 ## Install (HACS)
 
