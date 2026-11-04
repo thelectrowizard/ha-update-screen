@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Update Screen",
-        "description": "Show an \"Updating\" screen in the UI while Home Assistant Supervisor, Core or the Operating System is updating."
+        "description": "Shows an \"Updating\" screen in the UI while Home Assistant Supervisor, Core or the Operating System is updating."
       }
     },
     "abort": {
@@ -15,8 +15,8 @@
       "init": {
         "title": "Update Screen settings",
         "menu_options": {
-          "entities": "Choose update entities",
-          "demo": "Show demo"
+          "entities": "Choose Update Entities",
+          "demo": "Show Demo"
         }
       },
       "entities": {
@@ -26,7 +26,7 @@
       }
     },
     "abort": {
-      "demo_started": "The demo screen is now showing in your browser."
+      "demo_started": "The demo screen is now showing."
     }
   },
   "entity": {}
