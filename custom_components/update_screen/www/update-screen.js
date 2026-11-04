@@ -89,7 +89,7 @@
         <h1>Updating</h1>
         <div class="what"></div>
         <div class="bar"><div class="fill indeterminate"></div></div>
-        <p class="msg">The system is updating, and some UI elements may be slow while updating.</p>
+        <p class="msg">The system is updating, and some UI elements may be slow or unusable.</p>
         <ha-button variant="danger">Continue</ha-button>
       </div>`;
     el.querySelector("ha-button").addEventListener("click", () => {
