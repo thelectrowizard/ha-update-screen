@@ -21,8 +21,17 @@
       },
       "entities": {
         "title": "Choose update entities",
+        "description": "Tick to show the screen for every update entity. Untick to pick individual ones on the next screen.",
+        "data": {
+          "all": "Select all update entities"
+        }
+      },
+      "pick": {
+        "title": "Choose update entities",
         "description": "The screen shows while any selected entity is updating. Leave empty to use the Home Assistant Core, Supervisor and Operating System updates.",
-        "data": { "entities": "Update entities" }
+        "data": {
+          "entities": "Update entities"
+        }
       }
     },
     "abort": {

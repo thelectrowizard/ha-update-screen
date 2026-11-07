@@ -14,6 +14,7 @@
   let dismissed = false;
   let selected = [];
   let enabled = true;
+  let all = false;
   let prev = new Set();
   const lastSeen = new Map();
   const needRestart = new Map();
@@ -21,7 +22,7 @@
   let initialised = false;
 
   const isWatched = (id) =>
-    selected.length ? selected.includes(id) : DEFAULTS.some((re) => re.test(id));
+    all ? id.startsWith("update.") : selected.length ? selected.includes(id) : DEFAULTS.some((re) => re.test(id));
 
   // Core, Supervisor and OS restart themselves when an update finishes.
   const restartsItself = (id) => DEFAULTS.some((re) => re.test(id));
@@ -57,6 +58,7 @@
         const cfg = await ha.hass.callWS({ type: "update_screen/get_config" });
         selected = cfg.entities || [];
         enabled = cfg.enabled !== false;
+        all = !!cfg.all;
       } catch (e) { /* keep previous settings */ }
     };
     await load();

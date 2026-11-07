@@ -12,7 +12,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 import voluptuous as vol
 
-from .const import CONF_ENTITIES, DOMAIN, EVENT_DEMO
+from .const import CONF_ALL, CONF_ENTITIES, DOMAIN, EVENT_DEMO
 
 
 class UpdateScreenConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -40,8 +40,29 @@ class UpdateScreenOptionsFlow(OptionsFlow):
         return self.async_show_menu(step_id="init", menu_options=["entities", "demo"])
 
     async def async_step_entities(self, user_input=None) -> ConfigFlowResult:
+        """Select-all checkbox; unticked continues to the entity list."""
         if user_input is not None:
-            return self.async_create_entry(data={**self.config_entry.options, **user_input})
+            if user_input[CONF_ALL]:
+                return self.async_create_entry(
+                    data={**self.config_entry.options, CONF_ALL: True, CONF_ENTITIES: []}
+                )
+            return await self.async_step_pick()
+        return self.async_show_form(
+            step_id="entities",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_ALL, default=self.config_entry.options.get(CONF_ALL, False)
+                    ): selector.BooleanSelector()
+                }
+            ),
+        )
+
+    async def async_step_pick(self, user_input=None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(
+                data={**self.config_entry.options, CONF_ALL: False, **user_input}
+            )
         current = self.config_entry.options.get(CONF_ENTITIES, [])
         names = {
             state.entity_id: state.name for state in self.hass.states.async_all("update")
@@ -53,7 +74,7 @@ class UpdateScreenOptionsFlow(OptionsFlow):
             for entity_id, name in sorted(names.items(), key=lambda item: item[1].lower())
         ]
         return self.async_show_form(
-            step_id="entities",
+            step_id="pick",
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_ENTITIES, default=current): selector.SelectSelector(
