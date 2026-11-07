@@ -12,10 +12,11 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_ENTITIES, DOMAIN, EVENT_CONFIG_UPDATED, JS_FILE, URL_BASE
+from .const import CONF_ENABLED, CONF_ENTITIES, DOMAIN, EVENT_CONFIG_UPDATED, JS_FILE, URL_BASE
 
-PLATFORMS = [Platform.BUTTON]
+PLATFORMS = [Platform.SWITCH]
 _REGISTERED = f"{DOMAIN}_registered"
 
 
@@ -24,8 +25,14 @@ _REGISTERED = f"{DOMAIN}_registered"
 def ws_get_config(hass: HomeAssistant, connection, msg) -> None:
     """Return the entities the overlay should watch (empty = defaults)."""
     entries = hass.config_entries.async_entries(DOMAIN)
-    entities = entries[0].options.get(CONF_ENTITIES, []) if entries else []
-    connection.send_result(msg["id"], {"entities": entities})
+    options = entries[0].options if entries else {}
+    connection.send_result(
+        msg["id"],
+        {
+            "entities": options.get(CONF_ENTITIES, []),
+            "enabled": options.get(CONF_ENABLED, True),
+        },
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -38,6 +45,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         websocket_api.async_register_command(hass, ws_get_config)
         hass.data[_REGISTERED] = True
     add_extra_js_url(hass, f"{URL_BASE}/{JS_FILE}")
+    registry = er.async_get(hass)
+    if old := registry.async_get_entity_id("button", DOMAIN, f"{entry.entry_id}_demo"):
+        registry.async_remove(old)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True

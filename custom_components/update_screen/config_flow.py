@@ -41,7 +41,7 @@ class UpdateScreenOptionsFlow(OptionsFlow):
 
     async def async_step_entities(self, user_input=None) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            return self.async_create_entry(data={**self.config_entry.options, **user_input})
         current = self.config_entry.options.get(CONF_ENTITIES, [])
         names = {
             state.entity_id: state.name for state in self.hass.states.async_all("update")

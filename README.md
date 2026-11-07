@@ -12,5 +12,7 @@ A Home Assistant custom integration that shows a full-screen "Updating" notice, 
 
 ## Notes
 
-- By default watches `update.home_assistant_core_update`, `update.home_assistant_supervisor_update` and `update.home_assistant_operating_system_update`. Open the integration → **Configure** to choose any `update.*` entities instead, or to **Show demo**. A **Demo** button entity is also added to the integration for previewing.
-- Core and OS updates restart Home Assistant, so the screen is only visible before the restart.
+- By default watches `update.home_assistant_core_update`, `update.home_assistant_supervisor_update` and `update.home_assistant_operating_system_update`. Open the integration → **Configure** to choose any `update.*` entities instead, or to **Show demo**.
+- The **Enabled** switch on the integration turns the whole screen on or off.
+- Core, Supervisor and OS updates restart themselves: at 98% the screen says "Preparing to restart". With several updates running it shows "# Updating".
+- Any other selected entity that finishes updating is assumed to need a restart. Once nothing else is updating, the screen shows a red **Restart** button and Continue turns gray.

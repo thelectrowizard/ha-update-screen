@@ -13,25 +13,32 @@
   let overlay = null;
   let dismissed = false;
   let selected = [];
+  let enabled = true;
+  let prev = new Set();
+  const lastSeen = new Map();
+  const needRestart = new Map();
   let demoUntil = 0;
   let initialised = false;
 
-  const getStates = () => {
-    const ha = document.querySelector("home-assistant");
-    return ha && ha.hass ? ha.hass.states : null;
-  };
+  const isWatched = (id) =>
+    selected.length ? selected.includes(id) : DEFAULTS.some((re) => re.test(id));
+
+  // Core, Supervisor and OS restart themselves when an update finishes.
+  const restartsItself = (id) => DEFAULTS.some((re) => re.test(id));
 
   const activeUpdates = (states) => {
     const out = [];
     for (const [id, st] of Object.entries(states)) {
-      const watched = selected.length
-        ? selected.includes(id)
-        : DEFAULTS.some((re) => re.test(id));
-      if (!watched) continue;
+      if (!isWatched(id)) continue;
       const a = st.attributes || {};
       if (!a.in_progress) continue;
       const pct = typeof a.in_progress === "number" ? a.in_progress : a.update_percentage;
-      out.push({ name: a.friendly_name || id, pct: typeof pct === "number" ? pct : null });
+      out.push({
+        id,
+        name: a.friendly_name || id,
+        pct: typeof pct === "number" ? pct : null,
+        auto: restartsItself(id),
+      });
     }
     return out;
   };
@@ -39,7 +46,7 @@
   const demoUpdates = () => {
     const left = demoUntil - Date.now();
     return left > 0
-      ? [{ name: "Demo", pct: Math.min(100, ((DEMO_MS - left) / DEMO_MS) * 100) }]
+      ? [{ id: "demo", name: "Demo", auto: true, pct: Math.min(100, ((DEMO_MS - left) / DEMO_MS) * 100) }]
       : [];
   };
 
@@ -47,7 +54,9 @@
     initialised = true;
     const load = async () => {
       try {
-        selected = (await ha.hass.callWS({ type: "update_screen/get_config" })).entities || [];
+        const cfg = await ha.hass.callWS({ type: "update_screen/get_config" });
+        selected = cfg.entities || [];
+        enabled = cfg.enabled !== false;
       } catch (e) { /* keep previous settings */ }
     };
     await load();
@@ -84,17 +93,27 @@
         @keyframes us-slide{0%{left:-35%}100%{left:100%}}
         #update-screen-overlay p.msg{margin:24px 0 28px;line-height:1.5;
           color:var(--secondary-text-color)}
+        #update-screen-overlay .restart-row{margin-top:12px;visibility:hidden}
+        #update-screen-overlay .restart-row.show{visibility:visible}
       </style>
       <div class="box">
         <h1>Updating</h1>
         <div class="what"></div>
         <div class="bar"><div class="fill indeterminate"></div></div>
         <p class="msg">The system is updating, and some UI elements may be slow or unusable.</p>
-        <ha-button variant="danger">Continue</ha-button>
+        <ha-button class="continue" variant="danger">Continue</ha-button>
+        <div class="restart-row"><ha-button class="restart" variant="danger">Restart</ha-button></div>
       </div>`;
-    el.querySelector("ha-button").addEventListener("click", () => {
+    el.querySelector(".continue").addEventListener("click", () => {
       dismissed = true;
       hide();
+    });
+    const restart = el.querySelector(".restart");
+    restart.addEventListener("click", () => {
+      restart.disabled = true;
+      restart.textContent = "Restarting…";
+      const ha = document.querySelector("home-assistant");
+      ha.hass.callService("homeassistant", "restart");
     });
     return el;
   };
@@ -108,7 +127,8 @@
   };
 
   const render = (updates) => {
-    if (!updates.length || dismissed) {
+    const restartable = !updates.length && needRestart.size > 0;
+    if ((!updates.length && !restartable) || dismissed) {
       hide();
       return;
     }
@@ -118,13 +138,31 @@
       requestAnimationFrame(() => requestAnimationFrame(() =>
         overlay && overlay.classList.add("visible")));
     }
-    overlay.querySelector(".what").textContent =
-      updates.map((u) => u.name).join(" & ");
+    let title = "Updating";
+    let names;
+    let pct = null;
+    if (restartable) {
+      title = "Restart required";
+      names = [...needRestart.values()];
+      pct = 100;
+    } else {
+      names = updates.map((u) => u.name);
+      const pcts = updates.map((u) => u.pct).filter((p) => p !== null);
+      if (pcts.length) pct = Math.max(...pcts);
+      if (updates.length > 1) title = `${updates.length} Updating`;
+      else if (updates[0].auto && pct !== null && pct >= 98) title = "Preparing to restart";
+    }
+    overlay.querySelector("h1").textContent = title;
+    overlay.querySelector(".what").textContent = names.join(" & ");
+    overlay.querySelector(".msg").textContent = restartable
+      ? "Restart Home Assistant to finish applying the update."
+      : "The system is updating, and some UI elements may be slow or unusable.";
+    overlay.querySelector(".continue").setAttribute("variant", restartable ? "neutral" : "danger");
+    overlay.querySelector(".restart-row").classList.toggle("show", restartable);
     const fill = overlay.querySelector(".fill");
-    const pcts = updates.map((u) => u.pct).filter((p) => p !== null);
-    if (pcts.length) {
+    if (pct !== null) {
       fill.classList.remove("indeterminate");
-      fill.style.width = Math.max(...pcts) + "%";
+      fill.style.width = pct + "%";
     } else {
       fill.classList.add("indeterminate");
       fill.style.width = "";
@@ -135,8 +173,23 @@
     const ha = document.querySelector("home-assistant");
     if (!ha || !ha.hass) return;
     if (!initialised) init(ha);
-    const updates = activeUpdates(ha.hass.states).concat(demoUpdates());
-    if (!updates.length) dismissed = false;
+    const real = enabled ? activeUpdates(ha.hass.states) : [];
+    const now = new Set(real.map((u) => u.id));
+    for (const u of real) {
+      lastSeen.set(u.id, u);
+      needRestart.delete(u.id);
+    }
+    for (const id of prev) {
+      const u = lastSeen.get(id);
+      if (!now.has(id) && u && !u.auto && isWatched(id)) {
+        needRestart.set(id, u.name);
+        dismissed = false;
+      }
+    }
+    prev = now;
+    if (!enabled) needRestart.clear();
+    const updates = real.concat(demoUpdates());
+    if (!updates.length && !needRestart.size) dismissed = false;
     render(updates);
   }, 1000);
 })();
