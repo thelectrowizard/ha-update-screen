@@ -16,6 +16,7 @@
   let enabled = true;
   let all = false;
   let pendingRestart = false;
+  let serverNeeded = [];
   let banner = null;
   let prev = new Set();
   const lastSeen = new Map();
@@ -63,16 +64,26 @@
         all = !!cfg.all;
       } catch (e) { /* keep previous settings */ }
     };
-    await load();
-    ha.hass.connection.subscribeEvents(load, "update_screen_config_updated");
-    ha.hass.connection.subscribeMessage((ev) => {
-      pendingRestart = !!ev.pending;
-      setRestartLabels();
-    }, { type: "update_screen/presence" });
     ha.hass.connection.subscribeEvents(() => {
       dismissed = false;
       demoUntil = Date.now() + DEMO_MS;
     }, "update_screen_demo");
+    ha.hass.connection.subscribeEvents(load, "update_screen_config_updated");
+    ha.hass.connection.subscribeMessage((ev) => {
+      pendingRestart = !!ev.pending;
+      serverNeeded = ev.needed || [];
+      setRestartLabels();
+    }, { type: "update_screen/presence" }).catch(() => {});
+    await load();
+  };
+
+  // The settings dialog sits in the browser's top layer, so z-index alone
+  // can't get above it; a manual popover shown later can.
+  const toTopLayer = (el) => {
+    try {
+      el.setAttribute("popover", "manual");
+      el.showPopover();
+    } catch (e) { /* older browsers: fixed positioning only */ }
   };
 
   const canRestart = () => {
@@ -102,7 +113,7 @@
     el.id = "update-screen-banner";
     el.innerHTML = `
       <style>
-        #update-screen-banner{position:fixed;left:0;right:0;bottom:0;z-index:2147482000;
+        #update-screen-banner{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;height:auto;margin:0;border:0;z-index:2147482000;
           display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;
           padding:12px 16px;box-sizing:border-box;opacity:0;pointer-events:none;
           transition:opacity .4s ease;background:var(--card-background-color);
@@ -117,10 +128,11 @@
   };
 
   const syncBanner = () => {
-    const show = enabled && needRestart.size > 0;
+    const show = enabled && !overlay && (needRestart.size > 0 || serverNeeded.length > 0);
     if (show && !banner) {
       banner = buildBanner();
       document.body.appendChild(banner);
+      toTopLayer(banner);
       setRestartLabels();
       requestAnimationFrame(() => requestAnimationFrame(() =>
         banner && banner.classList.add("visible")));
@@ -141,7 +153,7 @@
     el.id = "update-screen-overlay";
     el.innerHTML = `
       <style>
-        #update-screen-overlay{position:fixed;inset:0;z-index:2147483000;display:flex;
+        #update-screen-overlay{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;overflow:visible;z-index:2147483000;display:flex;
           align-items:center;justify-content:center;padding:16px;box-sizing:border-box;
           opacity:0;transition:opacity .4s ease;
           background:var(--primary-background-color);color:var(--primary-text-color);
@@ -207,6 +219,7 @@
     if (!overlay) {
       overlay = build();
       document.body.appendChild(overlay);
+      toTopLayer(overlay);
       requestAnimationFrame(() => requestAnimationFrame(() =>
         overlay && overlay.classList.add("visible")));
     }

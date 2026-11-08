@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import voluptuous as vol
 
@@ -11,7 +12,8 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
 
@@ -37,13 +39,17 @@ def ws_get_config(hass: HomeAssistant, connection, msg) -> None:
     )
 
 
+# Core, Supervisor and OS restart themselves when an update finishes.
+_SELF_RESTARTING = re.compile(
+    r"^update\.home_assistant_(core|supervisor|operating_system|os)_update$"
+)
 RESTART_GRACE = 15  # seconds, so a page reload doesn't trigger the restart
 _STATE = f"{DOMAIN}_state"
 
 
 def _state(hass: HomeAssistant) -> dict:
     return hass.data.setdefault(
-        _STATE, {"conns": {}, "pending": False, "cancel": None}
+        _STATE, {"conns": {}, "pending": False, "cancel": None, "needed": {}}
     )
 
 
@@ -51,7 +57,11 @@ def _state(hass: HomeAssistant) -> dict:
 def _on_change(hass: HomeAssistant) -> None:
     """Tell open pages the new state; restart once everyone has left."""
     st = _state(hass)
-    payload = {"pending": st["pending"], "sessions": len(st["conns"])}
+    payload = {
+        "pending": st["pending"],
+        "sessions": len(st["conns"]),
+        "needed": list(st["needed"].values()),
+    }
     for send in list(st["conns"].values()):
         send(payload)
     if st["cancel"]:
@@ -102,6 +112,15 @@ def ws_request_restart(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"])
 
 
+def _is_watched(entry: ConfigEntry, entity_id: str) -> bool:
+    options = entry.options
+    if options.get(CONF_ALL):
+        return entity_id.startswith("update.")
+    if options.get(CONF_ENTITIES):
+        return entity_id in options[CONF_ENTITIES]
+    return bool(_SELF_RESTARTING.match(entity_id))
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Serve the overlay script and load it in the frontend."""
     if not hass.data.get(_REGISTERED):
@@ -119,6 +138,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         registry.async_remove(old)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
+    @callback
+    def _state_changed(event: Event) -> None:
+        """Remember updates that finished and need a manual restart."""
+        entity_id = event.data["entity_id"]
+        old, new = event.data.get("old_state"), event.data.get("new_state")
+        if not entity_id.startswith("update.") or old is None or new is None:
+            return
+        if _SELF_RESTARTING.match(entity_id) or not _is_watched(entry, entity_id):
+            return
+        needed = _state(hass)["needed"]
+        if new.attributes.get("in_progress"):
+            changed = needed.pop(entity_id, None) is not None
+        elif old.attributes.get("in_progress"):
+            needed[entity_id] = new.name
+            changed = True
+        else:
+            return
+        if changed:
+            _on_change(hass)
+
+    entry.async_on_unload(hass.bus.async_listen(EVENT_STATE_CHANGED, _state_changed))
     return True
 
 
