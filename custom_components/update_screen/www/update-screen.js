@@ -93,7 +93,7 @@
 
   const setRestartLabels = () => {
     document.querySelectorAll("#update-screen-overlay .restart")
-      .forEach((b) => { b.textContent = pendingRestart ? "Cancel restart" : "Restart"; });
+      .forEach((b) => { b.textContent = pendingRestart ? "Cancel restart" : "Restart later"; });
     const msg = document.querySelector("#update-screen-overlay .msg.restartable-msg");
     if (msg) msg.textContent = restartMessage();
   };
@@ -130,7 +130,7 @@
       notify("Home Assistant will restart after the last person disconnects",
         admin && "Cancel", requestRestart);
     } else {
-      notify("A system restart is required to update", admin && "Restart", requestRestart);
+      notify("A system restart is required to update", admin && "Restart later", requestRestart);
     }
   };
 
@@ -178,7 +178,7 @@
           <ha-button class="continue danger" variant="danger">Continue</ha-button>
           <ha-button class="continue neutral" variant="neutral">Continue</ha-button>
         </div>
-        <div class="restart-row"><ha-button class="restart" variant="danger">Restart</ha-button></div>
+        <div class="restart-row"><ha-button class="restart" variant="danger">Restart later</ha-button></div>
       </div>`;
     el.querySelectorAll(".continue").forEach((b) => b.addEventListener("click", () => {
       dismissed = true;
