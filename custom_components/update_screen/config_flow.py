@@ -12,7 +12,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 import voluptuous as vol
 
-from .const import CONF_ALL, CONF_ENTITIES, DOMAIN, EVENT_DEMO
+from .const import ALL_VALUE, CONF_ALL, CONF_ENTITIES, DOMAIN, EVENT_DEMO
 
 
 class UpdateScreenConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -40,46 +40,39 @@ class UpdateScreenOptionsFlow(OptionsFlow):
         return self.async_show_menu(step_id="init", menu_options=["entities", "demo"])
 
     async def async_step_entities(self, user_input=None) -> ConfigFlowResult:
-        """Select-all checkbox; unticked continues to the entity list."""
+        """One checkbox list: "Select all" first, then every update entity."""
+        options = self.config_entry.options
         if user_input is not None:
-            if user_input[CONF_ALL]:
-                return self.async_create_entry(
-                    data={**self.config_entry.options, CONF_ALL: True, CONF_ENTITIES: []}
-                )
-            return await self.async_step_pick()
-        return self.async_show_form(
-            step_id="entities",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_ALL, default=self.config_entry.options.get(CONF_ALL, False)
-                    ): selector.BooleanSelector()
-                }
-            ),
-        )
-
-    async def async_step_pick(self, user_input=None) -> ConfigFlowResult:
-        if user_input is not None:
+            chosen = user_input[CONF_ENTITIES]
+            select_all = ALL_VALUE in chosen
             return self.async_create_entry(
-                data={**self.config_entry.options, CONF_ALL: False, **user_input}
+                data={
+                    **options,
+                    CONF_ALL: select_all,
+                    CONF_ENTITIES: [] if select_all else chosen,
+                }
             )
-        current = self.config_entry.options.get(CONF_ENTITIES, [])
+        current = options.get(CONF_ENTITIES, [])
         names = {
             state.entity_id: state.name for state in self.hass.states.async_all("update")
         }
         for entity_id in current:
             names.setdefault(entity_id, entity_id)
-        options = [
+        entries = [
             selector.SelectOptionDict(value=entity_id, label=f"{name} ({entity_id})")
             for entity_id, name in sorted(names.items(), key=lambda item: item[1].lower())
         ]
+        entries.insert(
+            0, selector.SelectOptionDict(value=ALL_VALUE, label="Select all update entities")
+        )
+        default = [ALL_VALUE] if options.get(CONF_ALL) else current
         return self.async_show_form(
-            step_id="pick",
+            step_id="entities",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_ENTITIES, default=current): selector.SelectSelector(
+                    vol.Optional(CONF_ENTITIES, default=default): selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=options,
+                            options=entries,
                             multiple=True,
                             mode=selector.SelectSelectorMode.LIST,
                         )
