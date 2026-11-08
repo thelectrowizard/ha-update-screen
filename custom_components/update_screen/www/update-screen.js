@@ -74,6 +74,27 @@
       serverNeeded = ev.needed || [];
       setRestartLabels();
     }, { type: "update_screen/presence" }).catch(() => {});
+    // Home Assistant restarted (the page stays open and reconnects): whatever
+    // update needed this restart is now applied, so clear everything and
+    // replace the old toast.
+    ha.hass.connection.addEventListener("ready", () => {
+      const hadToast = toastKind !== null;
+      needRestart.clear();
+      lastSeen.clear();
+      prev = new Set();
+      serverNeeded = [];
+      pendingRestart = false;
+      toastKind = null;
+      dismissed = false;
+      if (hadToast) {
+        const ha2 = document.querySelector("home-assistant");
+        ha2.dispatchEvent(new CustomEvent("hass-notification", {
+          detail: { message: "Home Assistant restarted", duration: 4000 },
+          bubbles: true, composed: true,
+        }));
+      }
+      load();
+    });
     await load();
   };
 
