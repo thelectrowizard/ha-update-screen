@@ -15,6 +15,8 @@
   let selected = [];
   let enabled = true;
   let all = false;
+  let pendingRestart = false;
+  let banner = null;
   let prev = new Set();
   const lastSeen = new Map();
   const needRestart = new Map();
@@ -63,10 +65,75 @@
     };
     await load();
     ha.hass.connection.subscribeEvents(load, "update_screen_config_updated");
+    ha.hass.connection.subscribeMessage((ev) => {
+      pendingRestart = !!ev.pending;
+      setRestartLabels();
+    }, { type: "update_screen/presence" });
     ha.hass.connection.subscribeEvents(() => {
       dismissed = false;
       demoUntil = Date.now() + DEMO_MS;
     }, "update_screen_demo");
+  };
+
+  const canRestart = () => {
+    const ha = document.querySelector("home-assistant");
+    return !!(ha && ha.hass && ha.hass.user && ha.hass.user.is_admin);
+  };
+
+  const setRestartLabels = () => {
+    document.querySelectorAll("#update-screen-overlay .restart, #update-screen-banner .restart")
+      .forEach((b) => { b.textContent = pendingRestart ? "Cancel restart" : "Restart"; });
+    const msg = document.querySelector("#update-screen-overlay .msg.restartable-msg");
+    if (msg) msg.textContent = restartMessage();
+  };
+
+  const restartMessage = () => pendingRestart
+    ? "Restart scheduled. Home Assistant will restart once everyone has left."
+    : "Restart Home Assistant to finish applying the update.";
+
+  // Restarts once no one is connected, so other people's sessions aren't cut off.
+  const requestRestart = () => {
+    const ha = document.querySelector("home-assistant");
+    ha.hass.callWS({ type: "update_screen/request_restart", enable: !pendingRestart });
+  };
+
+  const buildBanner = () => {
+    const el = document.createElement("div");
+    el.id = "update-screen-banner";
+    el.innerHTML = `
+      <style>
+        #update-screen-banner{position:fixed;left:0;right:0;bottom:0;z-index:2147482000;
+          display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;
+          padding:12px 16px;box-sizing:border-box;opacity:0;pointer-events:none;
+          transition:opacity .4s ease;background:var(--card-background-color);
+          color:var(--primary-text-color);border-top:1px solid var(--divider-color);
+          font-family:var(--ha-font-family-body,var(--paper-font-body1_-_font-family,Roboto,sans-serif))}
+        #update-screen-banner.visible{opacity:1;pointer-events:auto}
+      </style>
+      <span>A system restart is required to update</span>
+      <ha-button class="restart" variant="danger">Restart</ha-button>`;
+    el.querySelector(".restart").addEventListener("click", requestRestart);
+    return el;
+  };
+
+  const syncBanner = () => {
+    const show = enabled && needRestart.size > 0;
+    if (show && !banner) {
+      banner = buildBanner();
+      document.body.appendChild(banner);
+      setRestartLabels();
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        banner && banner.classList.add("visible")));
+    }
+    if (banner) {
+      banner.querySelector(".restart").style.display = canRestart() ? "" : "none";
+      if (!show) {
+        const el = banner;
+        banner = null;
+        el.classList.remove("visible");
+        setTimeout(() => el.remove(), 450);
+      }
+    }
   };
 
   const build = () => {
@@ -95,28 +162,31 @@
         @keyframes us-slide{0%{left:-35%}100%{left:100%}}
         #update-screen-overlay p.msg{margin:24px 0 28px;line-height:1.5;
           color:var(--secondary-text-color)}
-        #update-screen-overlay .restart-row{margin-top:12px;visibility:hidden}
-        #update-screen-overlay .restart-row.show{visibility:visible}
+        #update-screen-overlay .continue-wrap{position:relative;display:inline-block}
+        #update-screen-overlay .continue{transition:opacity .4s ease}
+        #update-screen-overlay .continue.neutral{position:absolute;inset:0;opacity:0;pointer-events:none}
+        #update-screen-overlay .restartable .continue.danger{opacity:0;pointer-events:none}
+        #update-screen-overlay .restartable .continue.neutral{opacity:1;pointer-events:auto}
+        #update-screen-overlay .restart-row{margin-top:12px;opacity:0;pointer-events:none;
+          transition:opacity .4s ease}
+        #update-screen-overlay .restart-row.show{opacity:1;pointer-events:auto}
       </style>
       <div class="box">
         <h1>Updating</h1>
         <div class="what"></div>
         <div class="bar"><div class="fill indeterminate"></div></div>
         <p class="msg">The system is updating, and some UI elements may be slow or unusable.</p>
-        <ha-button class="continue" variant="danger">Continue</ha-button>
+        <div class="continue-wrap">
+          <ha-button class="continue danger" variant="danger">Continue</ha-button>
+          <ha-button class="continue neutral" variant="neutral">Continue</ha-button>
+        </div>
         <div class="restart-row"><ha-button class="restart" variant="danger">Restart</ha-button></div>
       </div>`;
-    el.querySelector(".continue").addEventListener("click", () => {
+    el.querySelectorAll(".continue").forEach((b) => b.addEventListener("click", () => {
       dismissed = true;
       hide();
-    });
-    const restart = el.querySelector(".restart");
-    restart.addEventListener("click", () => {
-      restart.disabled = true;
-      restart.textContent = "Restarting…";
-      const ha = document.querySelector("home-assistant");
-      ha.hass.callService("homeassistant", "restart");
-    });
+    }));
+    el.querySelector(".restart").addEventListener("click", requestRestart);
     return el;
   };
 
@@ -156,11 +226,14 @@
     }
     overlay.querySelector("h1").textContent = title;
     overlay.querySelector(".what").textContent = names.join(" & ");
-    overlay.querySelector(".msg").textContent = restartable
-      ? "Restart Home Assistant to finish applying the update."
+    const msgEl = overlay.querySelector(".msg");
+    msgEl.classList.toggle("restartable-msg", restartable);
+    msgEl.textContent = restartable
+      ? restartMessage()
       : "The system is updating, and some UI elements may be slow or unusable.";
-    overlay.querySelector(".continue").setAttribute("variant", restartable ? "neutral" : "danger");
-    overlay.querySelector(".restart-row").classList.toggle("show", restartable);
+    setRestartLabels();
+    overlay.querySelector(".box").classList.toggle("restartable", restartable);
+    overlay.querySelector(".restart-row").classList.toggle("show", restartable && canRestart());
     const fill = overlay.querySelector(".fill");
     if (pct !== null) {
       fill.classList.remove("indeterminate");
@@ -193,5 +266,6 @@
     const updates = real.concat(demoUpdates());
     if (!updates.length && !needRestart.size) dismissed = false;
     render(updates);
+    syncBanner();
   }, 1000);
 })();

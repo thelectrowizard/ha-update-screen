@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
 
 from .const import CONF_ALL, CONF_ENABLED, CONF_ENTITIES, DOMAIN, EVENT_CONFIG_UPDATED, JS_FILE, URL_BASE
 
@@ -36,6 +37,71 @@ def ws_get_config(hass: HomeAssistant, connection, msg) -> None:
     )
 
 
+RESTART_GRACE = 15  # seconds, so a page reload doesn't trigger the restart
+_STATE = f"{DOMAIN}_state"
+
+
+def _state(hass: HomeAssistant) -> dict:
+    return hass.data.setdefault(
+        _STATE, {"conns": {}, "pending": False, "cancel": None}
+    )
+
+
+@callback
+def _on_change(hass: HomeAssistant) -> None:
+    """Tell open pages the new state; restart once everyone has left."""
+    st = _state(hass)
+    payload = {"pending": st["pending"], "sessions": len(st["conns"])}
+    for send in list(st["conns"].values()):
+        send(payload)
+    if st["cancel"]:
+        st["cancel"]()
+        st["cancel"] = None
+    if st["pending"] and not st["conns"]:
+
+        @callback
+        def _restart(_now) -> None:
+            st["cancel"] = None
+            if st["pending"] and not st["conns"]:
+                hass.async_create_task(
+                    hass.services.async_call("homeassistant", "restart")
+                )
+
+        st["cancel"] = async_call_later(hass, RESTART_GRACE, _restart)
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/presence"})
+@callback
+def ws_presence(hass: HomeAssistant, connection, msg) -> None:
+    """Each open page subscribes; closing the page ends the subscription."""
+    st = _state(hass)
+    key = (id(connection), msg["id"])
+    st["conns"][key] = lambda payload: connection.send_message(
+        websocket_api.event_message(msg["id"], payload)
+    )
+
+    @callback
+    def _unsub() -> None:
+        st["conns"].pop(key, None)
+        _on_change(hass)
+
+    connection.subscriptions[msg["id"]] = _unsub
+    connection.send_result(msg["id"])
+    _on_change(hass)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/request_restart", vol.Required("enable"): bool}
+)
+@callback
+def ws_request_restart(hass: HomeAssistant, connection, msg) -> None:
+    """Schedule (or cancel) a restart for when no one is connected."""
+    _state(hass)["pending"] = msg["enable"]
+    _on_change(hass)
+    connection.send_result(msg["id"])
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Serve the overlay script and load it in the frontend."""
     if not hass.data.get(_REGISTERED):
@@ -44,6 +110,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             [StaticPathConfig(URL_BASE, str(www), cache_headers=False)]
         )
         websocket_api.async_register_command(hass, ws_get_config)
+        websocket_api.async_register_command(hass, ws_presence)
+        websocket_api.async_register_command(hass, ws_request_restart)
         hass.data[_REGISTERED] = True
     add_extra_js_url(hass, f"{URL_BASE}/{JS_FILE}")
     registry = er.async_get(hass)
