@@ -17,7 +17,7 @@
   let all = false;
   let pendingRestart = false;
   let serverNeeded = [];
-  let banner = null;
+  let toastKind = null;
   let prev = new Set();
   const lastSeen = new Map();
   const needRestart = new Map();
@@ -92,14 +92,14 @@
   };
 
   const setRestartLabels = () => {
-    document.querySelectorAll("#update-screen-overlay .restart, #update-screen-banner .restart")
+    document.querySelectorAll("#update-screen-overlay .restart")
       .forEach((b) => { b.textContent = pendingRestart ? "Cancel restart" : "Restart"; });
     const msg = document.querySelector("#update-screen-overlay .msg.restartable-msg");
     if (msg) msg.textContent = restartMessage();
   };
 
   const restartMessage = () => pendingRestart
-    ? "Restart scheduled. Home Assistant will restart once everyone has left."
+    ? "Home Assistant will restart after the last person disconnects"
     : "Restart Home Assistant to finish applying the update.";
 
   // Restarts once no one is connected, so other people's sessions aren't cut off.
@@ -108,43 +108,29 @@
     ha.hass.callWS({ type: "update_screen/request_restart", enable: !pendingRestart });
   };
 
-  const buildBanner = () => {
-    const el = document.createElement("div");
-    el.id = "update-screen-banner";
-    el.innerHTML = `
-      <style>
-        #update-screen-banner{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;height:auto;margin:0;border:0;z-index:2147482000;
-          display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;
-          padding:12px 16px;box-sizing:border-box;opacity:0;pointer-events:none;
-          transition:opacity .4s ease;background:var(--card-background-color);
-          color:var(--primary-text-color);border-top:1px solid var(--divider-color);
-          font-family:var(--ha-font-family-body,var(--paper-font-body1_-_font-family,Roboto,sans-serif))}
-        #update-screen-banner.visible{opacity:1;pointer-events:auto}
-      </style>
-      <span>A system restart is required to update</span>
-      <ha-button class="restart" variant="danger">Restart</ha-button>`;
-    el.querySelector(".restart").addEventListener("click", requestRestart);
-    return el;
+  // Home Assistant's own bottom toast; a new notification replaces the text.
+  const notify = (message, actionText, action) => {
+    const ha = document.querySelector("home-assistant");
+    if (!ha) return;
+    const detail = { message, duration: -1, dismissable: true };
+    if (actionText) detail.action = { text: actionText, action };
+    ha.dispatchEvent(new CustomEvent("hass-notification", {
+      detail, bubbles: true, composed: true,
+    }));
   };
 
   const syncBanner = () => {
-    const show = enabled && !overlay && (needRestart.size > 0 || serverNeeded.length > 0);
-    if (show && !banner) {
-      banner = buildBanner();
-      document.body.appendChild(banner);
-      toTopLayer(banner);
-      setRestartLabels();
-      requestAnimationFrame(() => requestAnimationFrame(() =>
-        banner && banner.classList.add("visible")));
-    }
-    if (banner) {
-      banner.querySelector(".restart").style.display = canRestart() ? "" : "none";
-      if (!show) {
-        const el = banner;
-        banner = null;
-        el.classList.remove("visible");
-        setTimeout(() => el.remove(), 450);
-      }
+    const needed = enabled && !overlay && (needRestart.size > 0 || serverNeeded.length > 0);
+    if (!needed) { toastKind = null; return; }
+    const kind = pendingRestart ? "scheduled" : "required";
+    if (kind === toastKind) return;
+    toastKind = kind;
+    const admin = canRestart();
+    if (kind === "scheduled") {
+      notify("Home Assistant will restart after the last person disconnects",
+        admin && "Cancel", requestRestart);
+    } else {
+      notify("A system restart is required to update", admin && "Restart", requestRestart);
     }
   };
 
